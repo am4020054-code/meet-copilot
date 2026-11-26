@@ -95,3 +95,22 @@ upstream code. No open-source license has been selected for this package.
 Adds local indexed retrieval, recursive private context, source display/search and retrieval timing.
 Preserves the early/final answer panels, manual reading history, microphone and speaker labels.
 The public package uses generic settings; project-specific business policies are private configuration.
+
+## Reviewed performance improvements
+
+Selected ideas from [PR #1 by irisrumtub](https://github.com/am4020054-code/meet-copilot/pull/1)
+are included: Russian query-ending normalization, visible reporting of skipped file formats,
+short spoken answers with essential qualifications, and preparing one TLS connection ahead
+of the next request. The connection implementation is adapted: it sends no credentials or API
+requests during preparation, has no idle refresh loop, and does not replay a POST after an
+ambiguous failure. A broken submitted request follows the normal error path.
+
+Context is read into a local index on startup. For each question, local Python/SQLite search
+selects relevant passages and sends them with the current dialogue to the configured model
+(default `gemma-4-31b` via AssemblyAI). The model does not open your files or retain a loaded
+project between requests. Restart after editing context. Russian ending normalization helps
+word forms; cross-language coverage still depends on your configured aliases.
+
+We did not enable a separate model request for query expansion, automatic retries after four
+seconds, or unverified numeric previews. The PR's timing figures were measured on another
+corpus and are not latency guarantees for this application or a live call.

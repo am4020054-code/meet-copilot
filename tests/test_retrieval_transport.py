@@ -28,7 +28,7 @@ class TransportTests(unittest.TestCase):
                 def request(self,*args):requests.append(args)
                 def getresponse(self):return Response()
                 def close(self):pass
-            with patch('hints.http.client.HTTPSConnection',Connection):
+            with patch('hints.http.client.HTTPSConnection',Connection), patch('hints.WARM.take', return_value=None):
                 result=gateway_stream('Generic rules','synthetic-placeholder','How do I store the amber battery?',[],False,HintJob(),lambda *args:None,evidence=evidence,context_trace=traces.append)
             raw=requests[0][2]; body=json.loads(raw)
             self.assertIn('dry storage',body['messages'][1]['content'])

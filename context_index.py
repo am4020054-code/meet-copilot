@@ -13,8 +13,20 @@ FOLLOW = re.compile(r'\b(it|its|there|that|those|they|them|это|этот|эт�
 WORDS = re.compile(r'[^\W\d_]{3,}', re.U)
 
 
+ENDING = re.compile('(?:иями|ями|ами|ией|ого|его|ому|ему|ыми|ими|ов|ев|ей|ий|ый|ой|ая|яя|ое|ее|ые|ие|ых|их|ам|ям|ах|ях|ом|ем|ую|юю|[аяыиеоуюь])$')
+
+
+def stem(word):
+    # The query is a prefix match, and Russian endings change with case and number:
+    # 'тарифы' must also find 'тарифные', 'интеграции' must find 'интеграция'.
+    if not re.fullmatch('[а-я]+', word):
+        return word
+    short = ENDING.sub('', word)
+    return short if len(short) >= 4 else word
+
+
 def terms(text):
-    return list(dict.fromkeys(w for w in WORDS.findall(text.casefold().replace('ё','е')) if w not in STOP))
+    return list(dict.fromkeys(stem(w) for w in WORDS.findall(text.casefold().replace('ё','е')) if w not in STOP))
 
 
 def settings():
@@ -35,14 +47,17 @@ class ContextIndex:
         self.db = sqlite3.connect(':memory:', check_same_thread=False)
         self.db.execute('CREATE VIRTUAL TABLE search USING fts5(body, title, tokenize="unicode61")')
         self.rows = {}
-        files=[]; total=0; digest=hashlib.sha256()
+        files=[]; skipped=[]; total=0; digest=hashlib.sha256()
         if self.root.is_symlink():
             raise ValueError('Context directory must not be a symlink.')
         for directory, dirs, names in os.walk(self.root, followlinks=False):
             dirs[:] = sorted(d for d in dirs if not d.startswith('.') and not (Path(directory)/d).is_symlink())
             for name in sorted(names):
                 path=Path(directory)/name
-                if name.startswith('.') or path.is_symlink() or path.suffix.lower() not in ('.md','.txt') or not path.is_file(): continue
+                if name.startswith('.') or path.is_symlink() or not path.is_file(): continue
+                if path.suffix.lower() not in ('.md','.txt'):
+                    # Reported in the status and on screen: a .docx or .pdf left out must not go unnoticed.
+                    skipped.append(path.relative_to(self.root).as_posix()); continue
                 if path.stat().st_size > 5_000_000: raise ValueError('A context file exceeds the 5 MB limit.')
                 raw=path.read_bytes(); total+=len(raw)
                 if total > 20_000_000: raise ValueError('Selected context exceeds 20 MB.')
@@ -53,7 +68,7 @@ class ContextIndex:
                     self.rows[ident]={'text':body,'source':{'title':relative,'path':relative,'section':section,'line':line,'authority':'User-selected document'}}
                     self.db.execute('INSERT INTO search(rowid,body,title) VALUES(?,?,?)',(ident,body,relative+' '+section))
         self.db.commit()
-        self.metadata={'documents':len(files),'passages':len(self.rows),'bytes':total,'sha256':digest.hexdigest(),'files':files}
+        self.metadata={'documents':len(files),'passages':len(self.rows),'bytes':total,'sha256':digest.hexdigest(),'files':files,'skipped':skipped}
 
     @staticmethod
     def passages(text):

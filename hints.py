@@ -2,6 +2,7 @@
 import hashlib
 import os
 import http.client
+from gateway_connection import WarmConnection
 import json
 import math
 import re
@@ -20,6 +21,9 @@ company facts, outcomes, prices, commitments, guarantees or approvals. Preserve 
 If evidence is insufficient, ask for the specific missing detail. Respond directly without filler.
 Return SAY (English answer), RU (Russian translation of the question), optional FACTS (supporting
 facts with source filename in parentheses), ASK (English follow-up), NOTE (Russian caution).
+SAY is read aloud: one line, at most two short sentences, usually about 35 words.
+Keep essential conditions and qualifications in SAY even when they require more words.
+Put additional supporting detail in FACTS. Do not use lists or markdown in SAY.
 If no reply is needed, output SKIP. Suggestions displayed on screen are not actual speech.
 """
 HEADING_START = r'^[ \t]*(?:#{1,6}[ \t]+)?(?:\*\*)?'
@@ -74,6 +78,7 @@ def first_draft(buffer, question, manual=False):
 
 MODEL = os.environ.get('MEET_COPILOT_MODEL', 'gemma-4-31b')
 ENDPOINT = 'llm-gateway.assemblyai.com'
+WARM = WarmConnection(ENDPOINT)
 DEFAULT_RETRY_AFTER = 60
 
 
@@ -290,9 +295,11 @@ def gateway_stream(system, key, question, history, manual, job, preview, model=M
     delivered_core = None
     complete = False
     answer = ''
-    connection = http.client.HTTPSConnection(ENDPOINT, timeout=15)
+    connection = WARM.take()
     try:
-        connection.connect()
+        if connection is None:
+            connection = http.client.HTTPSConnection(ENDPOINT, timeout=15)
+            connection.connect()
         job.attach(connection)
         if job.cancelled.is_set():
             raise HintError('cancelled', 'Подсказка отменена.')
@@ -350,7 +357,8 @@ def gateway_stream(system, key, question, history, manual, job, preview, model=M
             raise HintError('timeout', 'Подсказка не успела подготовиться.') from None
         raise HintError('stream_interrupted', 'Поток подсказки прервался.') from None
     finally:
-        connection.close()
+        if connection is not None:
+            connection.close()
     if job.cancelled.is_set():
         raise HintError('cancelled', 'Подсказка отменена.')
     if not complete:

@@ -1,0 +1,9 @@
+{
+  "instructions": "Answer concisely. Ask for missing facts instead of inventing them.",
+  "goals": {
+    "discussion": "Understand the participant needs and agree a useful next action.",
+    "planning": "Agree responsibilities and the next action."
+  },
+  "speaker_diarization": {"enabled": false},
+  "vocabulary": {"terms": [], "prompt": "A conversation in English or Russian."}
+}

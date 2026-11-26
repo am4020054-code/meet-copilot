@@ -1,0 +1,13 @@
+import assert from 'node:assert/strict';
+import {Turns,continuesQuestion,streamingParameters,configureVocabulary,KEYTERMS,tabVoiceParts} from '../public/core.mjs';
+const turns=new Turns();
+assert.deepEqual(turns.accept({type:'Turn',turn_order:1,end_of_turn:true,transcript:'Hello'}),{id:1,text:'Hello'});
+assert.equal(turns.accept({type:'Turn',turn_order:1,end_of_turn:true,transcript:'Hello'}),null);
+assert.equal(continuesQuestion('Tell me','about your options',1000,false),true);
+assert.equal(continuesQuestion('Tell me','Next question',1000,false),false);
+assert.equal(KEYTERMS.length,0);
+configureVocabulary({terms:['Fictional widget'],prompt:'A generic demo.'});
+assert.equal(streamingParameters('short-lived-test-token',16000,{speakerLabels:true}).get('speaker_labels'),'true');
+assert.deepEqual(JSON.parse(streamingParameters('test',16000).get('keyterms_prompt')),['Fictional widget']);
+assert.equal(tabVoiceParts({transcript:'Hello',speaker_label:'A',words:[]},true)[0].label,'A');
+console.log('Core tests passed');

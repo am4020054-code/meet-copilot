@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="ru">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Meet Copilot</title><link rel="stylesheet" href="/style.css"></head>
+<body>
+<header><div><span class="eyebrow">MEET / CALL ASSISTANT</span><h1>Слова под рукой</h1></div><div class="header-actions"><span id="connection" class="badge">Без подключения</span><button id="stopTop" disabled>Остановить звук</button><button id="focus">Режим чтения</button><button id="settingsButton">Материалы пользователя</button></div></header>
+<main>
+<p id="serverNotice" class="caution" hidden></p>
+<section class="setup panel" id="setup" aria-label="Материалы пользователя" hidden>
+ <div><h2>Материалы пользователя</h2><p>Суфлёр использует документы из выбранной вами локальной папки.</p><p id="bundleText"></p></div>
+ <div><label for="goalMode">Цель разговора</label><select id="goalMode">
+  <option value="discussion">Обсуждение · потребности и следующий шаг</option>
+  <option value="planning">Планирование · цель и ответственность</option>
+ </select><button type="button" id="closeSetup">Закрыть</button></div>
+</section>
+<div class="workspace">
+ <aside class="panel listening">
+  <h2 id="dialogueTitle">Диалог</h2>
+  <p class="muted capture-help">Выберите вкладку Meet со звуком. Если Chrome спросит, разрешите микрофон для суфлёра. Микрофон Meet управляется отдельно. AssemblyAI готовит расшифровку и подсказки. Журнал хранится на этом компьютере.</p>
+  <div class="row"><button class="primary" id="start">Начать запись диалога</button><button id="stop" disabled>Стоп</button><button id="mic" aria-pressed="false" disabled>Включить микрофон</button></div>
+  <label class="checkbox speaker-option"><input id="speakerDiarization" type="checkbox"> Различать голоса вкладки · может оплачиваться отдельно</label>
+  <div class="signal input-state"><meter id="level" min="0" max="1" value="0" aria-label="Уровень звука вкладки"></meter><span id="audioState">Звук вкладки выключен</span></div>
+  <div class="signal input-state"><meter id="micLevel" min="0" max="1" value="0" aria-label="Уровень микрофона суфлёра"></meter><span id="micState" role="status">Микрофон суфлёра выключен</span></div>
+  <p id="journalState" class="small muted" role="status" hidden></p>
+  <details class="vocabulary"><summary id="vocabularyTitle">Словарь пользователя</summary>
+   <p id="vocabularyState" class="small" data-state="ready" role="status">Готов к отправке при следующем запуске.</p>
+   <p class="muted small">Термины и названия передаются в AssemblyAI вместе с каждой новой сессией. Список раскрыт только для просмотра.</p>
+   <div id="vocabularyList"></div>
+  </details>
+  <label class="checkbox"><input id="automatic" type="checkbox" checked> Подсказывать автоматически</label>
+  <div class="transcript" id="transcript" tabindex="0" aria-labelledby="dialogueTitle">
+   <p id="dialogueEmpty" class="muted">Здесь появятся реплики обеих сторон.</p>
+   <ol id="dialogueTurns" class="dialogue-turns"></ol>
+  </div>
+  <p id="partial" class="partial" hidden></p>
+  <p id="micPartial" class="partial" hidden></p>
+  <details id="speakerControls" class="speaker-controls" hidden>
+   <summary>Имена участников</summary>
+   <p class="muted small">Привяжите имя к голосу. При новом подключении проверьте привязки заново.</p>
+   <div id="speakerRows"></div>
+  </details>
+  <form id="questionForm"><label for="question">Распознанный вопрос — можно исправить</label><textarea id="question" rows="4" maxlength="4000" placeholder="Говорите свободно: вопрос появится здесь автоматически"></textarea><button class="primary" type="submit" id="ask">Подсказать ответ</button><span class="shortcut">⌘ / Ctrl + Enter</span></form>
+ </aside>
+ <div class="answer-column">
+ <section class="panel phrase-reference" aria-labelledby="thinkingTitle">
+  <h2 id="thinkingTitle">Фразы, чтобы взять паузу</h2>
+  <dl>
+   <div><dt lang="en" data-thinking-phrase>Well, let me think.</dt><dd>Так, дайте подумать.</dd></div>
+   <div><dt lang="en" data-thinking-phrase>Give me a second to think that through.</dt><dd>Дайте секунду это обдумать.</dd></div>
+   <div><dt lang="en" data-thinking-phrase>Let me gather my thoughts for a moment.</dt><dd>Дайте на секунду собраться с мыслями.</dd></div>
+   <div><dt lang="en" data-thinking-phrase>Let me find the best way to explain it.</dt><dd>Попробую подобрать понятное объяснение.</dd></div>
+   <div><dt lang="en" data-thinking-phrase>Let me put that into words.</dt><dd>Дайте мне это сформулировать.</dd></div>
+   <div><dt lang="en" data-thinking-phrase>Let me start with the main point.</dt><dd>Начну с главного.</dd></div>
+   <div><dt lang="en" data-thinking-phrase>Let me give you the short version first.</dt><dd>Сначала отвечу коротко.</dd></div>
+   <div><dt lang="en" data-thinking-phrase>Let me put it this way.</dt><dd>Позвольте сформулировать это так.</dd></div>
+  </dl>
+ </section>
+ <section class="panel answer-panel" aria-label="Подсказка">
+  <div class="answer-top"><span class="eyebrow">ВАША ПОДСКАЗКА</span><span id="answerState" class="badge">Пока без вопроса</span></div>
+  <div class="answer-navigation"><button id="previousAnswer" disabled>Предыдущая</button><span id="answerPosition">Пока без ответа</span><button id="nextAnswer" class="primary" disabled>Следующая подсказка</button></div>
+  <p id="newAnswerNotice" class="reading-notice" role="status" aria-atomic="true"></p>
+  <p id="generationState" class="small muted">Свободный разговор · сценарий не нужен</p>
+  <div id="previewSay" class="draft-line" aria-labelledby="previewTitle">
+   <h2 id="previewTitle">Предварительная подсказка</h2>
+   <p id="previewState" class="muted small">Появится, если смысл вопроса понятен до конца реплики.</p>
+   <p id="previewText" lang="en" hidden></p>
+  </div>
+  <h2 class="final-title">Финальный рекомендуемый ответ</h2>
+  <div id="questionRu" class="question-ru">Смысл вопроса — по-русски.</div>
+  <div id="answerEn" class="answer-en" lang="en">Здесь появится ответ по контексту пользователя.</div>
+  <details id="factsPanel" class="hint-detail" hidden><summary>Факты для ответа</summary><div id="facts" class="small"></div></details>
+  <div id="askPanel" class="hint-detail" hidden><strong>Уточнение к ответу</strong><p id="askNext"></p></div>
+  <p id="caution" class="caution">Ответы основаны на ваших документах и текущем диалоге.</p>
+  <details id="sourceDetails" class="source-details" hidden><summary id="sourceTitle">Источники ответа</summary><div id="sources" class="sources"></div></details>
+  <div class="answer-tools"><button id="copy">Копировать ответ</button><label for="fontSize">Размер <input id="fontSize" type="range" min="22" max="48" value="24"></label></div>
+  <div class="holding"><span>Нужно время?</span><button class="phrase" data-phrase="Could you say that again more slowly, please?">Переспросить</button><button class="phrase" data-phrase="Let me check that detail before I give you a firm answer.">Проверить деталь</button><button class="phrase" data-phrase="Could you share the relevant details?">Запросить данные</button></div>
+  <div id="error" class="error" role="alert" hidden></div>
+  <p id="timing" class="muted small"></p>
+ </section>
+ <section class="panel next-panel" aria-labelledby="nextTitle">
+  <h2 id="nextTitle">Как продолжить разговор</h2>
+  <p id="nextGoal" class="goal-label">Цель · потребности и следующий шаг</p>
+  <p id="nextWhy" class="next-why">Здесь появится следующий шаг по диалогу.</p>
+  <p id="nextLine" class="next-line" lang="en" hidden></p>
+  <button id="showNextIdea" class="new-idea" hidden>Показать новую идею</button>
+ </section>
+ </div>
+</div>
+<section class="panel library"><div class="library-title"><div><span class="eyebrow">РЕЗЕРВ БЕЗ ИНТЕРНЕТА</span><h2>Карточки для разговора</h2></div><span class="muted">Готовые формулировки из выбранных материалов</span></div><div id="cards" class="cards"></div><p id="scope" class="muted"></p></section>
+<details class="panel evidence"><summary>Источники и границы базы</summary><div id="sourceList"></div></details>
+<footer>Прототип · Готовность к звонку подтверждается после репетиции со звуком и API.<br>Суфлёр не произносит ответы и не отправляет их участникам звонка.</footer>
+</main><script type="module" src="/app.js"></script>
+</body></html>

@@ -21,6 +21,8 @@ If evidence is insufficient, ask for the specific missing detail. Respond direct
 Return SAY (English answer), RU (Russian translation of the question), optional FACTS (supporting
 facts with source filename in parentheses), ASK (English follow-up), NOTE (Russian caution).
 If no reply is needed, output SKIP. Suggestions displayed on screen are not actual speech.
+SAY is read aloud from a side screen: one line, at most two short sentences (about 35 words),
+plain text without lists or markdown. Put supporting detail in FACTS, not in SAY.
 """
 HEADING_START = r'^[ \t]*(?:#{1,6}[ \t]+)?(?:\*\*)?'
 STRATEGY = """Independently of SAY and ASK, also return a goal-driven continuation:
@@ -206,6 +208,68 @@ class HintJob:
                 self._disconnect()
 
 
+class WarmConnection:
+    """Keeps one TLS connection to the gateway open ahead of the next hint.
+
+    A new handshake costs 0.5-1.2 s per hint. The spare is replaced when it gets older than
+    MAX_IDLE and only while hints were requested recently, so an idle server makes no calls.
+    """
+    MAX_IDLE = 45
+    ACTIVE_FOR = 900
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._spare = None
+        self._opened = 0.0
+        self._until = 0.0
+        self._thread = None
+
+    def keep(self):
+        with self._lock:
+            self._until = time.monotonic() + self.ACTIVE_FOR
+            if self._thread is None or not self._thread.is_alive():
+                self._thread = threading.Thread(target=self._run, daemon=True)
+                self._thread.start()
+
+    def take(self):
+        """Return an already connected spare, or None when there is no fresh one."""
+        with self._lock:
+            connection, opened = self._spare, self._opened
+            self._spare = None
+        self.keep()
+        if connection is not None and time.monotonic() - opened > self.MAX_IDLE:
+            connection.close()
+            connection = None
+        return connection
+
+    def _run(self):
+        while True:
+            with self._lock:
+                active = time.monotonic() < self._until
+                stale = self._spare is None or time.monotonic() - self._opened > self.MAX_IDLE - 10
+                old = self._spare if active and stale else None
+                if not active:
+                    old, self._spare, self._thread = self._spare, None, None
+            if not active:
+                if old is not None:
+                    old.close()
+                return
+            if stale:
+                fresh = http.client.HTTPSConnection(ENDPOINT, timeout=15)
+                try:
+                    fresh.connect()
+                except OSError:
+                    fresh = None
+                with self._lock:
+                    if self._spare is old:
+                        self._spare, self._opened = fresh, time.monotonic()
+                        fresh = old
+                if fresh is not None:
+                    fresh.close()
+            time.sleep(1)
+
+
+WARM = WarmConnection()
 FINAL_FIELDS = FORMAT
 PREVIEW_RULES = """This is an unfinished fragment, not a confirmed question or actual turn.
 Output SAY: and a brief English response grounded in the reference data. If intent is unclear,
@@ -290,15 +354,27 @@ def gateway_stream(system, key, question, history, manual, job, preview, model=M
     delivered_core = None
     complete = False
     answer = ''
-    connection = http.client.HTTPSConnection(ENDPOINT, timeout=15)
+    headers = {'Authorization': key, 'Content-Type': 'application/json', 'Accept': 'text/event-stream'}
+    connection = WARM.take()
+    warm = connection is not None
     try:
-        connection.connect()
-        job.attach(connection)
-        if job.cancelled.is_set():
-            raise HintError('cancelled', 'Подсказка отменена.')
-        connection.request('POST', '/v1/chat/completions', request_bytes,
-                           {'Authorization': key, 'Content-Type': 'application/json', 'Accept': 'text/event-stream'})
-        response = connection.getresponse()
+        while True:
+            if connection is None:
+                connection = http.client.HTTPSConnection(ENDPOINT, timeout=15)
+                connection.connect()
+            job.attach(connection)
+            if job.cancelled.is_set():
+                raise HintError('cancelled', 'Подсказка отменена.')
+            try:
+                connection.request('POST', '/v1/chat/completions', request_bytes, headers)
+                response = connection.getresponse()
+                break
+            except (OSError, http.client.HTTPException):
+                # A spare that the provider closed while idle: retry once on a new connection.
+                if not warm or job.cancelled.is_set():
+                    raise
+                connection.close()
+                connection, warm = None, False
         if response.status != 200:
             if response.status == 429:
                 raise HintError('rate_limited', 'AssemblyAI просит подождать перед следующей подсказкой.',
@@ -350,7 +426,8 @@ def gateway_stream(system, key, question, history, manual, job, preview, model=M
             raise HintError('timeout', 'Подсказка не успела подготовиться.') from None
         raise HintError('stream_interrupted', 'Поток подсказки прервался.') from None
     finally:
-        connection.close()
+        if connection is not None:
+            connection.close()
     if job.cancelled.is_set():
         raise HintError('cancelled', 'Подсказка отменена.')
     if not complete:

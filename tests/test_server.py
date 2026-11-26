@@ -21,11 +21,19 @@ class ContextTests(unittest.TestCase):
             Path(root,'ignored.json').write_text('{}')
             index=ContextIndex(root,config={})
             self.assertEqual(index.metadata['documents'],2)
+            self.assertEqual(index.metadata['skipped'],['ignored.json'])
             result=index.search('How is the amber widget charged?')
             self.assertIn('supplied adapter',result['results'][0]['passage']['text'])
             self.assertLessEqual(result['evidence_bytes'],7000)
             self.assertLessEqual(len(index.search('widget',preliminary=True)['results']),3)
             self.assertEqual(result['results'][0]['source']['path'],'nested/a.md')
+    def test_russian_endings_do_not_hide_a_passage(self):
+        with tempfile.TemporaryDirectory() as root:
+            Path(root,'a.md').write_text('# Тарифные планы' + chr(10)*2 + 'Вымышленный базовый тариф включает три объекта.',encoding='utf-8')
+            Path(root,'b.md').write_text('Вымышленная интеграция с банком запланирована.',encoding='utf-8')
+            index=ContextIndex(root,config={})
+            self.assertIn('базовый тариф',index.search('Какие у вас тарифы?')['results'][0]['passage']['text'])
+            self.assertIn('с банком',index.search('Какие интеграции запланированы?')['results'][0]['passage']['text'])
     def test_symlinks_not_indexed(self):
         with tempfile.TemporaryDirectory() as root:
             Path(root,'link.md').symlink_to('/etc/hosts')

@@ -14,7 +14,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.request import Request, urlopen
 
-from hints import DEFAULT_RETRY_AFTER, GOAL_ROUTE, MODEL, HintError, HintJob, gateway_stream, load_bundle
+from hints import DEFAULT_RETRY_AFTER, GOAL_ROUTE, MODEL, WARM, HintError, HintJob, gateway_stream, load_bundle
 from context_index import ContextIndex
 from session_journal import SESSION_ID, append_event
 
@@ -86,6 +86,10 @@ class State:
         self.system, self.bundle = load_bundle()
         self.index = ContextIndex()
         self.bundle.update(index=self.index.metadata,files=self.index.metadata['files'])
+        skipped = self.index.metadata['skipped']
+        if skipped:
+            names = ', '.join(skipped[:6]) + (' …' if len(skipped) > 6 else '')
+            self.bundle['gateway_context'] += f' · NOT INDEXED: {len(skipped)} ({names}). Only .md and .txt are read'
         self.knowledge = {'cards': [], 'sources': [], 'limitations': 'Answers use the selected context. Verify important claims.'}
         self.key = (os.environ.get('ASSEMBLYAI_API_KEY', '') or read_key(credentials or Path.home() / '.config/meet-copilot/credentials.json')) if gateway else ''
         self.gateway = gateway
@@ -307,4 +311,9 @@ if __name__ == '__main__':
     args = parser.parse_args()
     with make_server(args.port, gateway=args.gateway) as app:
         print(f'Meet Copilot: http://127.0.0.1:{app.server_port}/', flush=True)
+        meta = app.state.index.metadata
+        print(f"Context: {meta['documents']} documents, {meta['passages']} passages, {meta['bytes']} bytes. "
+              f"{app.state.bundle['gateway_context']}", flush=True)
+        if args.gateway and app.state.key:
+            WARM.keep()
         app.serve_forever()

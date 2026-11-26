@@ -30,6 +30,10 @@ let activeRequest;
 let preliminaryTurn, preliminaryTimer, preliminaryJob, groupedPair = null, finalSpeech = '';
 let lastPreliminaryAt = -Infinity;
 const preliminaryDelay = 450, preliminarySpacing = 2700;
+// Every request re-sends the whole context. Above this size an early hint arrives after the
+// speaker has finished, and the extra requests only spend the per-minute token limit.
+const HEAVY_CONTEXT_BYTES = 24_000;
+let heavyContext = false;
 const preliminaryIdle = 'Появится, если смысл вопроса понятен до конца реплики.';
 const normalizedWords = text => (text.toLowerCase().match(/[\p{L}\p{N}]+/gu) || []).join(' ');
 const error = text => { $('error').textContent = text; $('error').hidden = !text; };
@@ -311,7 +315,7 @@ function isPreliminaryCandidate(text) {
     && !isCallAside(text);
 }
 function considerPreliminary(event) {
-  if (!configured || !$('automatic').checked || micBlocking() || cooldownUntil>Date.now()) return;
+  if (heavyContext || !configured || !$('automatic').checked || micBlocking() || cooldownUntil>Date.now()) return;
   const text=event.transcript?.trim() || '';
   if (preliminaryTurn?.id!==event.turn_order) {
     closePreviewPair(preliminaryTurn?.pair,'Реплика завершилась без ответа.');
@@ -671,7 +675,7 @@ function onTurn(event) {
 function scheduleCoach(host, delay=2600) {
   clearTimeout(coachingTimer);
   const item=answerHistory.at(-1);
-  if(host.thinkingPhrase || host.id<=coachedHostId || !isReplyTurn(host.text) || item?.origin!=='model') return;
+  if(heavyContext || host.thinkingPhrase || host.id<=coachedHostId || !isReplyTurn(host.text) || item?.origin!=='model') return;
   coachingTimer=setTimeout(()=>{
     if(!$('automatic').checked || speaking || pendingQuestion || microphone?.startedAt!=null
         || item!==answerHistory.at(-1) || host.id<=coachedHostId) return;
@@ -1092,6 +1096,7 @@ $('speakerDiarization').onchange=()=>{
 try {
   const response=await fetch('/api/status');if(!response.ok)throw new Error('Локальный сервер недоступен.');
   const status=await response.json();csrf=status.csrf;configured=status.configured;keySaved=status.key_saved;knowledge=status.knowledge;
+  heavyContext=(status.bundle?.bytes || 0)>HEAVY_CONTEXT_BYTES;
   configureVocabulary(status.vocabulary);
   $('vocabularyTitle').textContent=`Словарь пользователя · ${KEYTERMS.length} терминов`;
   for(const group of KEYTERM_GROUPS) {

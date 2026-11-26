@@ -13,7 +13,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.request import Request, urlopen
 
-from hints import DEFAULT_RETRY_AFTER, GOAL_ROUTE, MODEL, HintError, HintJob, gateway_stream, load_bundle
+from hints import DEFAULT_RETRY_AFTER, GOAL_ROUTE, MODEL, WARM, HintError, HintJob, gateway_stream, load_bundle
 from session_journal import SESSION_ID, append_event
 
 ROOT = Path(__file__).resolve().parent
@@ -296,4 +296,8 @@ if __name__ == '__main__':
     args = parser.parse_args()
     with make_server(args.port, gateway=args.gateway) as app:
         print(f'Meet Copilot: http://127.0.0.1:{app.server_port}/', flush=True)
+        bundle = app.state.bundle
+        print(f"Context: {bundle['bytes']} bytes. {bundle['gateway_context']}", flush=True)
+        if args.gateway and app.state.key:
+            WARM.keep()
         app.serve_forever()

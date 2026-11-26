@@ -1,0 +1,6 @@
+What technology stack is the product built on, and why did you choose it?
+How do you calculate utility charges: by share of floor area, or by meter readings?
+How is the system deployed, and how do you handle backups?
+Which integrations are already working today, and which are still only planned?
+How much does it cost, and what pricing plans do you have?
+Is our tenants' data isolated from other customers, and where is it hosted?

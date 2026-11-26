@@ -5,6 +5,7 @@ import math
 import os
 import re
 import secrets
+import sqlite3
 import stat
 import threading
 import time
@@ -14,10 +15,11 @@ from pathlib import Path
 from urllib.request import Request, urlopen
 
 from hints import DEFAULT_RETRY_AFTER, GOAL_ROUTE, MODEL, HintError, HintJob, gateway_stream, load_bundle
+from context_index import ContextIndex
 from session_journal import SESSION_ID, append_event
 
 ROOT = Path(__file__).resolve().parent
-VERSION = 'meet-copilot-public-1'
+VERSION = 'meet-copilot-public-2'
 ASSETS = {'/': ('index.html', 'text/html'), '/app.js': ('app.js', 'application/javascript'),
           '/core.mjs': ('core.mjs', 'application/javascript'), '/style.css': ('style.css', 'text/css'),
           '/audio-worklet.js': ('audio-worklet.js', 'application/javascript')}
@@ -82,8 +84,10 @@ def streaming_token(key):
 class State:
     def __init__(self, credentials=None, journal=None, gateway=False):
         self.system, self.bundle = load_bundle()
+        self.index = ContextIndex()
+        self.bundle.update(index=self.index.metadata,files=self.index.metadata['files'])
         self.knowledge = {'cards': [], 'sources': [], 'limitations': 'Answers use the selected context. Verify important claims.'}
-        self.key = os.environ.get('ASSEMBLYAI_API_KEY', '') or read_key(credentials or Path.home() / '.config/meet-copilot/credentials.json')
+        self.key = (os.environ.get('ASSEMBLYAI_API_KEY', '') or read_key(credentials or Path.home() / '.config/meet-copilot/credentials.json')) if gateway else ''
         self.gateway = gateway
         preferences = Path(os.environ.get('MEET_COPILOT_CONFIG') or Path.home() / '.config/meet-copilot/config.json')
         settings = json.loads(preferences.read_text(encoding='utf-8')) if preferences.is_file() else {}
@@ -197,6 +201,11 @@ class Handler(BaseHTTPRequestHandler):
                 except OSError:
                     return self.send(500, {'error': 'Не удалось сохранить запись на этом компьютере.'})
                 return self.send(200, {'saved': True})
+            if self.path == '/api/context/preview':
+                query=data.get('question')
+                if not isinstance(query,str) or not 1<=len(query.strip())<=4000: raise ValueError()
+                _, dialogue, _, _ = strategy_context(data)
+                return self.send(200,self.state.index.search(query.strip(),dialogue,local=True))
             if self.path == '/api/token':
                 if not self.state.gateway:
                     return self.send(409, {'error': 'В этом запуске звук и ответы отключены.'})
@@ -252,12 +261,14 @@ class Handler(BaseHTTPRequestHandler):
                 entry = self.state.cache.get(cache_key)
             if entry is not None and time.monotonic() - entry[0] < 90 and not job.cancelled.is_set():
                 return self.event('answer', result={**entry[1], 'elapsed_ms': 0, 'first_say_ms': 0, 'cached': True})
+            evidence=self.state.index.search(question,dialogue,final_speech,preliminary=preliminary)
             result = gateway_stream(self.state.system, self.state.key, question, history, manual, job,
                                     lambda ms, say: self.event('say', elapsed_ms=ms, text=say),
                                     mode=mode, dialogue=dialogue, retained=retained, context_limited=context_limited,
                                     refresh_next=refresh_next, preliminary=preliminary,
                                     displayed=displayed, final_speech=final_speech,
-                                    core=lambda ms, say: self.event('answer_core',elapsed_ms=ms,text=say))
+                                    core=lambda ms, say: self.event('answer_core',elapsed_ms=ms,text=say),
+                                    evidence=evidence,context_trace=lambda values:self.event('context',**values))
             if job.cancelled.is_set():
                 raise HintError('cancelled', 'Подсказка отменена.')
             if not result.get('skip'):

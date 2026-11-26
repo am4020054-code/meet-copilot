@@ -32,6 +32,7 @@ NUMBER_FIELDS = {
     'question_submitted': ('request_id',),
     'answer_prepared': ('request_id', 'answer_id', 'api_ms', 'after_final_ms', 'first_say_ms'),
     'say_preview': ('request_id', 'first_say_ms'),
+    'context_retrieved': ('request_id','retrieval_us','evidence_bytes','gateway_body_bytes','source_count'),
     'preliminary_shown': ('request_id', 'provider_turn_id', 'after_request_ms'),
     'preliminary_visible': ('request_id', 'provider_turn_id', 'after_request_ms'),
     'answer_core_prepared': ('request_id', 'answer_id', 'api_ms', 'after_final_ms'),
@@ -89,6 +90,8 @@ def event_record(data, key):
     for field in FLAGS.get(kind, ()):
         if type(data.get(field)) is bool:
             record[field] = data[field]
+    if kind=='context_retrieved' and DIGEST.fullmatch(str(data.get('index_sha256',''))):
+        record['index_sha256']=data['index_sha256']
     channel = data.get('channel')
     if kind in ('transcript_final', 'capture_connected', 'capture_disconnected', 'session_stopped', 'error', 'speaker_named') and channel in ('tab', 'mic'):
         record['channel'] = channel

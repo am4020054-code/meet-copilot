@@ -3,7 +3,7 @@ const $ = id => document.getElementById(id);
 let csrf = '', configured = false, keySaved = false, knowledge, busy = false;
 let queued = false, timer, socket, stream, context, worklet, captureEpoch = 0;
 let turns = new Turns(), grouped = [], groupTime = 0;
-const CLIENT_VERSION = 'meet-copilot-public-1';
+const CLIENT_VERSION = 'meet-copilot-public-2';
 const thinkingPhrases=[...document.querySelectorAll('[data-thinking-phrase]')].map(node=>node.textContent);
 const speakerPreferenceKey='meetCopilot.speakerLabels';
 let speakerLabelsPreference=false;
@@ -30,10 +30,6 @@ let activeRequest;
 let preliminaryTurn, preliminaryTimer, preliminaryJob, groupedPair = null, finalSpeech = '';
 let lastPreliminaryAt = -Infinity;
 const preliminaryDelay = 450, preliminarySpacing = 2700;
-// Every request re-sends the whole context. Above this size an early hint arrives after the
-// speaker has finished, and the extra requests only spend the per-minute token limit.
-const HEAVY_CONTEXT_BYTES = 24_000;
-let heavyContext = false;
 const preliminaryIdle = 'Появится, если смысл вопроса понятен до конца реплики.';
 const normalizedWords = text => (text.toLowerCase().match(/[\p{L}\p{N}]+/gu) || []).join(' ');
 const error = text => { $('error').textContent = text; $('error').hidden = !text; };
@@ -119,7 +115,7 @@ async function post(path, body = {}) {
   });
   return data;
 }
-async function streamHint(payload, request, onSay, onCore) {
+async function streamHint(payload, request, onSay, onCore, onContext) {
   const response=await fetch('/api/ask', {
     method:'POST', headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},
     body:JSON.stringify(payload), signal:request.controller.signal
@@ -143,6 +139,7 @@ async function streamHint(payload, request, onSay, onCore) {
         buffer=buffer.slice(end+1);
         if (event.type==='say') onSay?.(event);
         if (event.type==='answer_core') onCore?.(event);
+        if (event.type==='context') onContext?.(event);
         if (event.type==='answer') return event.result;
         if (event.type==='error') throw Object.assign(new Error(event.message), {code:event.code,status:event.code==='rate_limited'?429:502,retryAfter:event.retry_after_seconds});
       }
@@ -151,6 +148,29 @@ async function streamHint(payload, request, onSay, onCore) {
     reader.cancel().catch(()=>{});
   }
 }
+function appendSource(parent, ref, excerpt='') {
+  const article=document.createElement('article'), title=document.createElement('strong'), meta=document.createElement('div');
+  title.textContent=ref.title;
+  const geography=ref.geography || '';
+  meta.textContent=[geography,ref.page ? `Стр. ${ref.page}` : '',ref.section,ref.authority].filter(Boolean).join(' · ');
+  article.append(title,meta);
+  if(excerpt) {
+    const detail=document.createElement('p');
+    detail.textContent=excerpt;
+    article.append(detail);
+  }
+  const location=document.createElement('small');
+  const origin=ref.original || ref.path;
+  location.textContent=origin+(ref.line ? ` · строка ${ref.line} в Markdown` : '');
+  article.append(location);
+  parent.append(article);
+}
+function recordContext(requestId, values, session) {
+  record('context_retrieved',{request_id:requestId,retrieval_us:Math.round(values.retrieval_ms*1000),
+    evidence_bytes:values.evidence_bytes,gateway_body_bytes:values.gateway_body_bytes,
+    source_count:values.source_count,index_sha256:values.index_sha256},session);
+}
+
 function connection() {
   $('connection').textContent = configured ? (keySaved ? 'Распознавание настроено · звук выключен' : 'Ключ подключён · API требует проверки') : 'Без ключа · доступны карточки';
   $('settingsButton').textContent = 'Материалы пользователя';
@@ -193,8 +213,12 @@ function renderAnswer(answer, label, originalQuestion) {
   renderNext(answer);
   $('answerState').textContent = answer.language_issue ? 'Язык требует проверки' : label;
   $('sourceTitle').textContent=answer.material_ids?.length?'Материалы подготовки':'Источники ответа';
-  $('sourceDetails').hidden=!(answer.material_ids || answer.source_ids)?.length;
+  const contextual=answer.source_refs_local || [];
+  $('sourceDetails').hidden=!contextual.length && !(answer.material_ids || answer.source_ids)?.length;
   sources(answer.material_ids || answer.source_ids);
+  for(const ref of contextual) appendSource($('sources'),ref);
+  $('contextNotice').textContent=answer.context_notice || '';
+  $('contextNotice').hidden=!answer.context_notice;
   return answer;
 }
 function historyControls() {
@@ -242,6 +266,7 @@ function readAnswer(index) {
     $('factsPanel').hidden=true;
     $('askPanel').hidden=true;
     $('sourceDetails').hidden=true;
+    $('contextNotice').hidden=true;
     renderNext({});
     historyControls();
     return;
@@ -315,7 +340,7 @@ function isPreliminaryCandidate(text) {
     && !isCallAside(text);
 }
 function considerPreliminary(event) {
-  if (heavyContext || !configured || !$('automatic').checked || micBlocking() || cooldownUntil>Date.now()) return;
+  if (!configured || !$('automatic').checked || micBlocking() || cooldownUntil>Date.now()) return;
   const text=event.transcript?.trim() || '';
   if (preliminaryTurn?.id!==event.turn_order) {
     closePreviewPair(preliminaryTurn?.pair,'Реплика завершилась без ответа.');
@@ -350,7 +375,8 @@ async function preparePreliminary(turn) {
   lastPreliminaryAt=Date.now();
   setUnselectedPreviewState('Готовлю по текущему фрагменту…');
   try {
-    const answer=await streamHint({question:turn.text,preliminary:true,job_id:job.id,...strategyContext(goal,8000)},job);
+    const answer=await streamHint({question:turn.text,preliminary:true,job_id:job.id,...strategyContext(goal,8000)},job,
+      undefined,undefined,values=>recordContext(job.number,values,job.session));
     if (preliminaryJob!==job || preliminaryTurn!==turn || !speaking || currentGoal()!==goal) return;
     const value=answer.answer_en?.trim();
     if (answer.skip || answer.unavailable || !value || value.length>240 || /[0-9]/u.test(value)
@@ -487,7 +513,7 @@ async function ask(manual=false, coaching=null, hostId=0) {
       record('answer_core_prepared',{request_id:requestId,answer_id:answerHistory.indexOf(shortItem)+1,
         answer_en:event.text,api_ms:event.elapsed_ms,
         after_final_ms:finalAt===null?undefined:Math.round(performance.now()-finalAt)},session);
-    });
+    },values=>recordContext(requestId,values,session));
     if (!coaching && micPending()) await waitForMicEvidence();
     const current=turns.current(version);
     if (current && !answer.skip && !answer.unavailable && answer.goal_mode===strategy.goal_mode) {
@@ -675,7 +701,7 @@ function onTurn(event) {
 function scheduleCoach(host, delay=2600) {
   clearTimeout(coachingTimer);
   const item=answerHistory.at(-1);
-  if(heavyContext || host.thinkingPhrase || host.id<=coachedHostId || !isReplyTurn(host.text) || item?.origin!=='model') return;
+  if(host.thinkingPhrase || host.id<=coachedHostId || !isReplyTurn(host.text) || item?.origin!=='model') return;
   coachingTimer=setTimeout(()=>{
     if(!$('automatic').checked || speaking || pendingQuestion || microphone?.startedAt!=null
         || item!==answerHistory.at(-1) || host.id<=coachedHostId) return;
@@ -1054,6 +1080,24 @@ async function startAudio() {
 }
 $('settingsButton').onclick=()=>{document.body.classList.remove('focus');$('focus').textContent='Режим чтения';$('setup').hidden=!$('setup').hidden;};
 $('closeSetup').onclick=()=>{$('setup').hidden=true;};
+let contextLookupVersion=0;
+$('contextLookup').onsubmit=async event=>{
+  event.preventDefault();
+  const question=$('contextQuery').value.trim();
+  if(!question) return;
+  const version=++contextLookupVersion, container=$('contextResults');
+  container.replaceChildren();
+  $('contextStatus').textContent='Ищу в локальном индексе…';
+  try {
+    const answer=await post('/api/context/preview',{question,all_local:true,...strategyContext()});
+    if(version!==contextLookupVersion) return;
+    for(const item of answer.results) appendSource(container,item.source,item.passage.text);
+    $('contextStatus').textContent=answer.results.length
+      ? `${answer.results.length} фрагм. · ${answer.retrieval_ms.toFixed(1)} мс` : 'Подходящих фрагментов не найдено.';
+  } catch {
+    if(version===contextLookupVersion) $('contextStatus').textContent='Локальный поиск недоступен.';
+  }
+};
 $('questionForm').onsubmit=event=>{event.preventDefault();ask(true);};
 $('question').oninput=()=>{cancelPending();resetQuestion();questionEdited=true;$('generationState').textContent='Вопрос изменён · запросите ответ';};
 $('automatic').onchange=()=>{if(!$('automatic').checked){cancelPending();closePreviewPair(preliminaryTurn?.pair,'Подготовка остановлена.');resetPreliminary();setUnselectedPreviewState();}else{scheduleAnswer();}};
@@ -1096,7 +1140,6 @@ $('speakerDiarization').onchange=()=>{
 try {
   const response=await fetch('/api/status');if(!response.ok)throw new Error('Локальный сервер недоступен.');
   const status=await response.json();csrf=status.csrf;configured=status.configured;keySaved=status.key_saved;knowledge=status.knowledge;
-  heavyContext=(status.bundle?.bytes || 0)>HEAVY_CONTEXT_BYTES;
   configureVocabulary(status.vocabulary);
   $('vocabularyTitle').textContent=`Словарь пользователя · ${KEYTERMS.length} терминов`;
   for(const group of KEYTERM_GROUPS) {
@@ -1107,7 +1150,11 @@ try {
   journalEnabled=status.journal_schema===1;
   speakerLabelsPreference=savedSpeakerLabels(status.speaker_labels_default);
   $('speakerDiarization').checked=speakerLabelsPreference;
-  $('bundleText').textContent=status.bundle?.gateway_context || '';connection();$('setup').hidden=true;
+  const index=status.bundle?.index;
+  $('bundleText').textContent=index
+    ? `${status.bundle.gateway_context} · ${index.documents} документов в индексе`
+    : status.bundle?.gateway_context || '';
+  connection();$('setup').hidden=true;
   if (status.gateway_enabled===false) {
     $('serverNotice').textContent='Локальный просмотр · звук и внешние подсказки выключены.';
     $('serverNotice').hidden=false;

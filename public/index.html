@@ -6,7 +6,7 @@
 <main>
 <p id="serverNotice" class="caution" hidden></p>
 <section class="setup panel" id="setup" aria-label="Материалы пользователя" hidden>
- <div><h2>Материалы пользователя</h2><p>Суфлёр использует документы из выбранной вами локальной папки.</p><p id="bundleText"></p></div>
+ <div><h2>Материалы пользователя</h2><p>Суфлёр использует документы из выбранной вами локальной папки.</p><p id="bundleText"></p><form id="contextLookup"><label for="contextQuery">Поиск по выбранным источникам</label><input id="contextQuery" type="search" maxlength="4000"><button type="submit">Найти</button></form><p id="contextStatus" class="small muted" role="status"></p><div id="contextResults" class="sources"></div></div>
  <div><label for="goalMode">Цель разговора</label><select id="goalMode">
   <option value="discussion">Обсуждение · потребности и следующий шаг</option>
   <option value="planning">Планирование · цель и ответственность</option>
@@ -70,7 +70,7 @@
   <details id="factsPanel" class="hint-detail" hidden><summary>Факты для ответа</summary><div id="facts" class="small"></div></details>
   <div id="askPanel" class="hint-detail" hidden><strong>Уточнение к ответу</strong><p id="askNext"></p></div>
   <p id="caution" class="caution">Ответы основаны на ваших документах и текущем диалоге.</p>
-  <details id="sourceDetails" class="source-details" hidden><summary id="sourceTitle">Источники ответа</summary><div id="sources" class="sources"></div></details>
+  <details id="sourceDetails" class="source-details" hidden><summary id="sourceTitle">Источники ответа</summary><div id="sources" class="sources"></div></details><p id="contextNotice" class="muted small" hidden></p>
   <div class="answer-tools"><button id="copy">Копировать ответ</button><label for="fontSize">Размер <input id="fontSize" type="range" min="22" max="48" value="24"></label></div>
   <div class="holding"><span>Нужно время?</span><button class="phrase" data-phrase="Could you say that again more slowly, please?">Переспросить</button><button class="phrase" data-phrase="Let me check that detail before I give you a firm answer.">Проверить деталь</button><button class="phrase" data-phrase="Could you share the relevant details?">Запросить данные</button></div>
   <div id="error" class="error" role="alert" hidden></div>

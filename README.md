@@ -25,12 +25,26 @@ The `.env.example` documents settings; the server does not automatically load `.
 
 ## Your context
 
-Put selected UTF-8 `.md` or `.txt` files directly in a private folder and set
+Put selected UTF-8 `.md` or `.txt` files in a private folder and set
 `MEET_COPILOT_CONTEXT` to that folder. Default: `~/.config/meet-copilot/context`.
-No documents, agreed answers or company facts are bundled. Subfolders and symlinks are excluded.
-The selected documents are all included in each hint request (maximum 140,000 bytes in total).
-Large context can increase delay. Restart the server after changes. An empty folder is valid;
-the assistant then has only the dialogue and must ask for missing facts.
+The program recursively indexes that folder in memory on startup using SQLite FTS5.
+Hidden files/directories and symlinks are excluded. No documents, agreed answers, company facts
+or generated index are bundled. Limits are 5 MB per file and 20 MB for the selected folder.
+Restart after document changes; the running process uses a fixed snapshot.
+
+Each question searches the full selected collection locally. Only relevant whole paragraphs are
+sent to the model: at most three passages / 3,400 bytes for early suggestions and six / 7,000 bytes
+for final answers. Oversized paragraphs that cannot fit are omitted rather than truncated.
+These limits cover the serialized evidence; instructions and dialogue add to request size.
+Follow-ups use nearby actual dialogue from both speakers. Optional `search_aliases` groups in your
+private config connect synonyms or languages. Search is lexical, so terminology and document
+structure affect relevance; an empty result is explicitly shown instead of a fabricated source.
+
+The materials panel offers local search without API access. Answers show valid source references
+and notices for missing or unknown references. Source IDs validate provenance only, not truth or
+whether the claim follows from the source. Numerical lines wait for the completed model response.
+Retrieval duration, evidence/request sizes and source counts are recorded in local session logs.
+An empty folder is valid; the assistant then has only dialogue and must ask for missing facts.
 
 Copy `config.example.json` outside the repository. Set `MEET_COPILOT_CONFIG` to its location.
 It controls your instructions, two conversation goals, glossary and default diarization setting.
@@ -44,7 +58,7 @@ separately. Meet microphone settings do not control this app. Use headphones to 
 Early text is provisional and may be corrected after the complete utterance. Final answers remain
 in history; navigate with Previous/Next. A displayed suggestion is not treated as spoken speech.
 
-Audio, selected context and transcript excerpts are sent to AssemblyAI when live mode is enabled.
+Audio, retrieved context excerpts and transcript excerpts are sent to AssemblyAI when live mode is enabled.
 Local dialogue/error journals are stored at `~/.local/share/meet-copilot/sessions`, or the directory
 in `MEET_COPILOT_LOG_DIR`. Journals contain conversation text: manage retention yourself.
 The long-lived API key stays on the server; the browser receives a short-lived speech token.
@@ -75,3 +89,9 @@ Python HTTP server, a browser-to-provider speech connection, and its own interfa
 upstream uses a Node/WebSocket server and an Anthropic backend. No upstream files are distributed here.
 Upstream has no published license at that revision. This attribution does not grant rights to
 upstream code. No open-source license has been selected for this package.
+
+## Release 2
+
+Adds local indexed retrieval, recursive private context, source display/search and retrieval timing.
+Preserves the early/final answer panels, manual reading history, microphone and speaker labels.
+The public package uses generic settings; project-specific business policies are private configuration.

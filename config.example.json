@@ -4,6 +4,21 @@
     "discussion": "Understand the participant needs and agree a useful next action.",
     "planning": "Agree responsibilities and the next action."
   },
-  "speaker_diarization": {"enabled": false},
-  "vocabulary": {"terms": [], "prompt": "A conversation in English or Russian."}
+  "speaker_diarization": {
+    "enabled": false
+  },
+  "vocabulary": {
+    "terms": [],
+    "prompt": "A conversation in English or Russian."
+  },
+  "search_aliases": [
+    [
+      "battery",
+      "батарея"
+    ],
+    [
+      "delivery",
+      "доставка"
+    ]
+  ]
 }
